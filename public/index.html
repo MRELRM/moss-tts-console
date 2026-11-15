@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MOSS TTS 四合一测试台</title>
+<meta name="description" content="本地运行的 MOSS TTS 测试台：单音色合成 / 多人对话合成 / 音色设计 / 音色克隆四合一，API Key 仅保存在服务端。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232dd4a7'/%3E%3Cpath d='M28 14v26a8 8 0 1 1-4-6.9V20l20-5v18a8 8 0 1 1-4-6.9V19z' fill='%23071a14'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner">
+    <div class="title-wrap">
+      <h1>MOSS TTS 四合一测试台</h1>
+      <p class="subtitle">单音色合成 · 多人对话 · 音色设计 · 音色克隆 ｜ 本地零依赖 Node 代理 · API Key 仅存于服务端 .env</p>
+    </div>
+    <div id="healthBar" class="health-bar pending"><span class="dot dot-gray"></span><span id="healthText">正在检查本地服务状态…</span></div>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist" aria-label="切换 TTS 场景">
+  <button type="button" class="tab" role="tab" aria-selected="false" data-scene="speech">
+    <span class="tab-index">01</span><span class="tab-name">单音色合成</span><span class="tab-model">moss-tts-1.5-flash</span>
+  </button>
+  <button type="button" class="tab" role="tab" aria-selected="false" data-scene="dialog">
+    <span class="tab-index">02</span><span class="tab-name">多人对话</span><span class="tab-model">moss-ttsd-1.0</span>
+  </button>
+  <button type="button" class="tab" role="tab" aria-selected="false" data-scene="design">
+    <span class="tab-index">03</span><span class="tab-name">音色设计</span><span class="tab-model">moss-voice-generator-1.0</span>
+  </button>
+  <button type="button" class="tab" role="tab" aria-selected="false" data-scene="clone">
+    <span class="tab-index">04</span><span class="tab-name">音色克隆</span><span class="tab-model">POST /v1/audio/voices</span>
+  </button>
+</nav>
+
+<p class="model-desc" id="sceneDesc"></p>
+
+<main class="layout">
+
+  <!-- ============ 左栏：参数配置 / 结果 / 错误 ============ -->
+  <div class="col-main">
+
+    <section class="card">
+      <h2 class="card-title">参数配置</h2>
+
+      <!-- 待合成文本（单音色 / 音色设计） -->
+      <div class="field" id="fieldText">
+        <label for="textInput" id="textLabel">待合成文本 <span class="req">*</span><span class="field-note" id="textNote">（input，必填）</span></label>
+        <textarea id="textInput" rows="4" placeholder="输入要合成的文本…">你好，欢迎使用 MOSS TTS 四合一测试台。这是一段预置的测试文本，点击下方按钮即可试听语音合成效果。</textarea>
+        <div class="char-count" id="charCount">0 字符</div>
+      </div>
+
+      <!-- 单音色：voice_id -->
+      <div class="field" id="fieldVoice">
+        <label for="voiceSelect">音色 voice_id <span class="req">*</span><span class="field-note">（下拉选择“我的音色”/示例，或手动输入外部 ID）</span></label>
+        <div class="voice-row">
+          <select id="voiceSelect"></select>
+          <input type="text" id="voiceManual" placeholder="手动输入 voice_id（留空则用上方选择）" spellcheck="false">
+        </div>
+        <p class="field-help">MOSS 音色库（MOSS Create）中复制的 ID 可直接粘贴到右侧手动输入框。</p>
+      </div>
+
+      <!-- 音色设计：instruction -->
+      <div class="field" id="fieldInstruction" hidden>
+        <label for="instructionInput">声音风格描述 instruction <span class="req">*</span><span class="field-note">（必填，描述越具体，风格越稳定）</span></label>
+        <textarea id="instructionInput" rows="2" placeholder="例如：一个温柔、自然、略带微笑感的年轻女声"></textarea>
+      </div>
+
+      <!-- 对话合成编辑器 -->
+      <div id="dialogSection" hidden>
+        <div class="field-title">说话人 speakers</div>
+        <div class="editor-table" id="speakerList"></div>
+        <button type="button" class="btn-ghost" id="addSpeakerBtn">+ 添加说话人</button>
+
+        <div class="field-title" style="margin-top:18px;">台词 segments（按顺序合成）</div>
+        <div class="editor-table" id="segmentList"></div>
+        <button type="button" class="btn-ghost" id="addSegmentBtn">+ 添加台词</button>
+      </div>
+
+      <!-- 克隆：参考音频上传 / 录音 -->
+      <div id="cloneSection" hidden>
+        <div class="field-title">参考音频（wav / mp3，原始大小不超过 20 MB）</div>
+        <div class="sample-actions">
+          <input type="file" id="fileInput" accept=".mp3,.wav,audio/mpeg,audio/mp3,audio/wav,audio/x-wav">
+          <button type="button" class="btn-ghost" id="recordBtn">开始录音</button>
+          <button type="button" class="btn-ghost danger" id="clearSampleBtn" hidden>清除样本</button>
+          <button type="button" class="btn-ghost" id="compressBtn" hidden>转码压缩（16kHz 单声道 WAV）</button>
+        </div>
+        <div class="record-status" id="recordStatus" hidden></div>
+        <div class="sample-info" id="sampleInfo" hidden></div>
+        <div class="field-row" style="margin-top:12px;">
+          <div class="field">
+            <label for="cloneName">音色名称 <span class="field-note">（可选）</span></label>
+            <input type="text" id="cloneName" placeholder="例如：我的测试音色">
+          </div>
+          <div class="field">
+            <label for="cloneDesc">音色描述 <span class="field-note">（可选）</span></label>
+            <input type="text" id="cloneDesc" placeholder="例如：中性、沉稳的叙述声音">
+          </div>
+        </div>
+        <p class="field-help">克隆成功后返回的 voice_id 会自动加入右侧“我的音色”列表，可在单音色合成与多人对话中直接选用。录音会自动转码为 16kHz 单声道 WAV。</p>
+      </div>
+
+      <!-- delivery_method / response_format / stream -->
+      <div class="field-row" id="deliveryRow">
+        <div class="field" id="fieldDelivery">
+          <label for="deliverySelect">返回方式 delivery_method</label>
+          <select id="deliverySelect">
+            <option value="audio">audio · 直接返回音频二进制</option>
+            <option value="url">url · 返回 JSON 与结果 URL</option>
+          </select>
+        </div>
+        <div class="field" id="fieldFormat">
+          <label for="formatSelect">输出格式 response_format</label>
+          <select id="formatSelect">
+            <option value="mp3">mp3（推荐）</option>
+            <option value="wav">wav</option>
+          </select>
+        </div>
+        <div class="field field-check" id="fieldStream" hidden>
+          <input type="checkbox" id="streamCheck">
+          <label for="streamCheck">stream = true<span class="field-note">（流式返回）</span></label>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="btn-primary" id="generateBtn">生成</button>
+      </div>
+    </section>
+
+    <!-- ============ 生成结果 ============ -->
+    <section class="card" id="resultCard" hidden>
+      <h2 class="card-title">生成结果</h2>
+      <div class="result-meta" id="resultMeta"></div>
+      <audio id="audioPlayer" controls preload="auto"></audio>
+      <div class="actions">
+        <button type="button" class="btn-primary outline" id="downloadBtn">下载音频</button>
+      </div>
+      <p class="field-help" id="urlNote" hidden>当前结果为 URL 模式：播放与下载均通过本地下载代理转发（结果 URL 为跨域地址，浏览器直接下载会失效）。若 URL 已过期，请清除缓存重新生成。</p>
+    </section>
+
+    <!-- ============ 错误信息 ============ -->
+    <section class="card error-card" id="errorCard" hidden>
+      <h2 class="card-title">错误信息</h2>
+      <div class="error-status" id="errorStatus"></div>
+      <pre class="error-body" id="errorBody"></pre>
+      <div class="error-hints" id="errorHints"></div>
+    </section>
+  </div>
+
+  <!-- ============ 右栏：我的音色 / 请求预览 ============ -->
+  <div class="col-side">
+
+    <section class="card">
+      <div class="card-title-row">
+        <h2 class="card-title">我的音色</h2>
+        <button type="button" class="btn-mini" id="toggleVoiceFormBtn">手动添加</button>
+      </div>
+      <div id="voiceAddForm" class="voice-add-form" hidden>
+        <input type="text" id="addVoiceName" placeholder="名称（可选）">
+        <input type="text" id="addVoiceId" placeholder="voice_id（必填）" spellcheck="false">
+        <div class="voice-add-actions">
+          <button type="button" class="btn-mini" id="saveVoiceBtn">保存</button>
+          <button type="button" class="btn-mini ghost" id="cancelVoiceBtn">取消</button>
+        </div>
+      </div>
+      <div id="voiceList" class="voice-list"></div>
+      <p class="field-help">列表保存在浏览器 localStorage，含已克隆音色与手动添加的外部音色；可在单音色合成与多人对话中选用。</p>
+    </section>
+
+    <section class="card">
+      <div class="card-title-row">
+        <h2 class="card-title">请求预览</h2>
+        <button type="button" class="btn-mini" id="regenPreviewBtn" title="按当前表单内容重新生成预览">从表单重新生成</button>
+      </div>
+      <label class="expert-toggle" id="expertWrap"><input type="checkbox" id="expertCheck"><span>专家模式：直接编辑此 JSON 并发送</span></label>
+      <textarea id="previewArea" class="preview-area" readonly spellcheck="false" aria-label="请求预览"></textarea>
+      <p class="preview-note" id="previewNote"></p>
+    </section>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="foot-card">
+    <h3>接口要点</h3>
+    <ul>
+      <li>MOSS API 域名是 <code>api.mosi.cn</code>（不是 moss.cn），端点在 <code>/v1</code> 路径下；鉴权统一使用 <code>Authorization: Bearer &lt;Key&gt;</code>。</li>
+      <li>单音色 <code>POST /v1/audio/speech</code>（moss-tts-1.5-flash）；多人对话 <code>POST /v1/audio/speech/speakers</code>（moss-ttsd-1.0，speakers 声明说话人 + segments 按顺序给台词）；音色设计 <code>POST /v1/audio/voice/generations</code>（moss-voice-generator-1.0，返回风格预览音频，<strong>不产生</strong>可复用的 voice_id）；音色克隆 <code>POST /v1/audio/voices</code>（multipart/form-data，返回音色对象 <strong>id 即 voice_id</strong>）。</li>
+      <li><code>delivery_method</code>：audio 直接返回音频二进制；url 返回 JSON 与结果 URL。音色设计建议用 url 方式。</li>
+      <li>音色克隆的字段名（默认 <code>file</code>）在文档未明确时可在 .env 中通过 <code>MOSS_CLONE_FILE_FIELD</code> 调整。</li>
+    </ul>
+  </div>
+  <div class="foot-card">
+    <h3>本地与安全</h3>
+    <ul>
+      <li>API Key 只保存在服务端 <code>.env</code>，浏览器端代码与网络请求中均不出现密钥；修改 .env 后需重启 <code>node server.js</code>。</li>
+      <li>相同请求（endpoint + 参数的 SHA-256）命中本地缓存 <code>.cache/moss/</code>，不再调用 MOSS API、不重复消耗积分；清空缓存可直接删除该目录。URL 模式的结果 URL 可能有时效，过期后清缓存重新生成即可。</li>
+      <li>健康检查 <code>GET /api/health</code>；下载代理 <code>GET /api/proxy-download</code> 仅允许 MOSS 相关域名。</li>
+      <li>参考：<a href="https://platform.moss.cn/docs/scenarios/single-voice" target="_blank" rel="noopener">单音色</a> · <a href="https://platform.moss.cn/docs/scenarios/dialogue" target="_blank" rel="noopener">对话</a> · <a href="https://platform.moss.cn/docs/scenarios/voice-design" target="_blank" rel="noopener">音色设计</a> · <a href="https://platform.moss.cn/docs/scenarios/voice-clone" target="_blank" rel="noopener">音色克隆</a></li>
+    </ul>
+  </div>
+</footer>
+
+<noscript><div class="noscript">本页面需要启用 JavaScript 才能使用。</div></noscript>
+<script src="app.js"></script>
+</body>
+</html>
