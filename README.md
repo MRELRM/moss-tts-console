@@ -158,5 +158,3 @@ moss-tts-console/
 ## 参考
 
 - [单音语音生成](https://platform.moss.cn/docs/scenarios/single-voice) · [多人对话生成](https://platform.moss.cn/docs/scenarios/dialogue) · [音色设计](https://platform.moss.cn/docs/scenarios/voice-design) · [音色克隆](https://platform.moss.cn/docs/scenarios/voice-clone)
-
-> AI生成
